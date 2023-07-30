@@ -38,10 +38,14 @@ enum Payload {
         node_ids: Vec<String>,
     },
     InitOk,
+    Generate,
+    GenerateOk {
+        id: String,
+    },
 }
 
 impl Message<Payload> {
-    pub fn response(self, msg_id: usize) -> Self {
+    pub fn response(self, node_id: &String, msg_id: usize) -> Self {
         Self {
             src: self.dest,
             dest: self.src,
@@ -50,6 +54,9 @@ impl Message<Payload> {
                 in_reply_to: self.body.msg_id,
                 payload: match self.body.payload {
                     Payload::Echo { echo } => Payload::EchoOk { echo },
+                    Payload::Generate => Payload::GenerateOk {
+                        id: format!("{}-{}", node_id, msg_id),
+                    },
                     Payload::Init { .. } => Payload::InitOk,
                     _ => {
                         panic!("init_ok or echo_ok received")
@@ -95,8 +102,9 @@ impl<'a> Maelstrom<'a> {
         }
     }
 
-    pub fn reply(&mut self, msg: Message<Payload>) -> Result<(), anyhow::Error> {
-        self.output.write(&msg.response(self.msg_id))?;
+    fn reply(&mut self, msg: Message<Payload>) -> Result<(), anyhow::Error> {
+        self.output
+            .write(&msg.response(&self.node_id, self.msg_id))?;
 
         self.msg_id += 1;
         Ok(())
