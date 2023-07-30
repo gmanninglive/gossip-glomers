@@ -54,7 +54,7 @@ enum Payload {
         messages: HashSet<usize>,
     },
     Topology {
-        topology: HashMap<String, Vec<String>>,
+        topology: Topology,
     },
     TopologyOk,
 }
@@ -92,7 +92,10 @@ struct Maelstrom<'a> {
     node_id: String,
     output: JsonLinesWriter<StdoutLock<'a>>,
     store: HashSet<usize>,
+    neighbours: Vec<String>,
 }
+
+type Topology = HashMap<String, Vec<String>>;
 
 impl<'a> Maelstrom<'a> {
     fn init() -> Result<Self, anyhow::Error> {
@@ -106,15 +109,13 @@ impl<'a> Maelstrom<'a> {
         let output = serde_jsonlines::JsonLinesWriter::new(std::io::stdout().lock());
 
         match init_msg.body.payload.clone() {
-            Payload::Init {
-                node_id,
-                node_ids: _,
-            } => {
+            Payload::Init { node_id, node_ids } => {
                 let mut m = Self {
                     msg_id: 0,
                     node_id,
                     output,
                     store: HashSet::with_capacity(1000),
+                    neighbours: node_ids,
                 };
 
                 m.reply(init_msg)?;
@@ -132,10 +133,29 @@ impl<'a> Maelstrom<'a> {
     }
 
     fn handle_message(&mut self, msg: Message) -> Result<(), anyhow::Error> {
-        match msg.body.payload {
+        match &msg.body.payload {
             Payload::Broadcast { message } => {
-                self.store.insert(message);
-                self.reply(msg)
+                if !self.store.contains(message) {
+                    self.store.insert(*message);
+
+                    for id in self.neighbours.clone().into_iter() {
+                        self.output.write(&Message {
+                            src: self.node_id.clone(),
+                            dest: id,
+                            body: Body {
+                                msg_id: None,
+                                in_reply_to: None,
+                                payload: msg.body.payload.clone(),
+                            },
+                        })?;
+                    }
+                }
+
+                if !self.neighbours.contains(&msg.src) {
+                    self.reply(msg)
+                } else {
+                    Ok(())
+                }
             }
             _ => self.reply(msg),
         }
