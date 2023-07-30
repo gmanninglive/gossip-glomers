@@ -1,4 +1,7 @@
-use std::io::StdoutLock;
+use std::{
+    collections::{HashMap, HashSet},
+    io::StdoutLock,
+};
 
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
@@ -6,16 +9,16 @@ use serde::{Deserialize, Serialize};
 use serde_jsonlines::JsonLinesWriter;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Message<Payload> {
+struct Message {
     src: String,
     dest: String,
-    body: Body<Payload>,
+    body: Body,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 
-struct Body<Payload> {
+struct Body {
     msg_id: Option<usize>,
     in_reply_to: Option<usize>,
 
@@ -42,24 +45,41 @@ enum Payload {
     GenerateOk {
         id: String,
     },
+    Broadcast {
+        message: usize,
+    },
+    BroadcastOk,
+    Read,
+    ReadOk {
+        messages: HashSet<usize>,
+    },
+    Topology {
+        topology: HashMap<String, Vec<String>>,
+    },
+    TopologyOk,
 }
 
-impl Message<Payload> {
-    pub fn response(self, node_id: &String, msg_id: usize) -> Self {
+impl Message {
+    pub fn response(self, ctx: &Maelstrom) -> Self {
         Self {
             src: self.dest,
             dest: self.src,
             body: Body {
-                msg_id: Some(msg_id),
+                msg_id: Some(ctx.msg_id),
                 in_reply_to: self.body.msg_id,
                 payload: match self.body.payload {
                     Payload::Echo { echo } => Payload::EchoOk { echo },
                     Payload::Generate => Payload::GenerateOk {
-                        id: format!("{}-{}", node_id, msg_id),
+                        id: format!("{}-{}", ctx.node_id, ctx.msg_id),
                     },
                     Payload::Init { .. } => Payload::InitOk,
+                    Payload::Broadcast { .. } => Payload::BroadcastOk,
+                    Payload::Read => Payload::ReadOk {
+                        messages: ctx.store.clone(),
+                    },
+                    Payload::Topology { .. } => Payload::TopologyOk,
                     _ => {
-                        panic!("init_ok or echo_ok received")
+                        panic!("unexpected message received")
                     }
                 },
             },
@@ -71,6 +91,7 @@ struct Maelstrom<'a> {
     msg_id: usize,
     node_id: String,
     output: JsonLinesWriter<StdoutLock<'a>>,
+    store: HashSet<usize>,
 }
 
 impl<'a> Maelstrom<'a> {
@@ -78,7 +99,7 @@ impl<'a> Maelstrom<'a> {
         let mut input = serde_jsonlines::JsonLinesReader::new(std::io::stdin().lock());
 
         let init_msg = input
-            .read::<Message<Payload>>()
+            .read::<Message>()
             .expect("did not receive init message")
             .expect("deserializing init message");
 
@@ -93,6 +114,7 @@ impl<'a> Maelstrom<'a> {
                     msg_id: 0,
                     node_id,
                     output,
+                    store: HashSet::with_capacity(1000),
                 };
 
                 m.reply(init_msg)?;
@@ -102,18 +124,27 @@ impl<'a> Maelstrom<'a> {
         }
     }
 
-    fn reply(&mut self, msg: Message<Payload>) -> Result<(), anyhow::Error> {
-        self.output
-            .write(&msg.response(&self.node_id, self.msg_id))?;
+    fn reply(&mut self, msg: Message) -> Result<(), anyhow::Error> {
+        self.output.write(&msg.response(self))?;
 
         self.msg_id += 1;
         Ok(())
     }
 
+    fn handle_message(&mut self, msg: Message) -> Result<(), anyhow::Error> {
+        match msg.body.payload {
+            Payload::Broadcast { message } => {
+                self.store.insert(message);
+                self.reply(msg)
+            }
+            _ => self.reply(msg),
+        }
+    }
+
     fn drain(&mut self) -> Result<(), anyhow::Error> {
         let input = serde_jsonlines::JsonLinesReader::new(std::io::stdin().lock());
-        for msg in input.read_all::<Message<Payload>>() {
-            self.reply(msg?)?;
+        for msg in input.read_all::<Message>() {
+            self.handle_message(msg?)?;
         }
 
         Ok(())
