@@ -68,10 +68,12 @@ struct Maelstrom<'a> {
 
 impl<'a> Maelstrom<'a> {
     fn init() -> Result<Self, anyhow::Error> {
-        let mut stdin = std::io::stdin().lines();
-        let init_msg = stdin.next().expect("init message nor received")?;
-        let init_msg = serde_json::from_str::<Message<Payload>>(&init_msg)
-            .expect("failed deserializing init msg");
+        let mut input = serde_jsonlines::JsonLinesReader::new(std::io::stdin().lock());
+
+        let init_msg = input
+            .read::<Message<Payload>>()
+            .expect("did not receive init message")
+            .expect("deserializing init message");
 
         let output = serde_jsonlines::JsonLinesWriter::new(std::io::stdout().lock());
 
@@ -101,11 +103,9 @@ impl<'a> Maelstrom<'a> {
     }
 
     fn drain(&mut self) -> Result<(), anyhow::Error> {
-        let stdin = std::io::stdin().lines();
-        for line in stdin {
-            let message = serde_json::from_str::<Message<Payload>>(&line?)?;
-
-            self.reply(message)?;
+        let input = serde_jsonlines::JsonLinesReader::new(std::io::stdin().lock());
+        for msg in input.read_all::<Message<Payload>>() {
+            self.reply(msg?)?;
         }
 
         Ok(())

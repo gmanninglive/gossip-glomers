@@ -39,7 +39,6 @@ dependencies = [
  "anyhow",
  "serde",
  "serde-jsonlines",
- "serde_json",
 ]
 
 [[package]]
