@@ -109,13 +109,16 @@ impl<'a> Maelstrom<'a> {
         let output = serde_jsonlines::JsonLinesWriter::new(std::io::stdout().lock());
 
         match init_msg.body.payload.clone() {
-            Payload::Init { node_id, node_ids } => {
+            Payload::Init {
+                node_id,
+                node_ids: _,
+            } => {
                 let mut m = Self {
                     msg_id: 0,
-                    node_id,
+                    node_id: node_id.clone(),
                     output,
                     store: HashSet::with_capacity(1000),
-                    neighbours: node_ids,
+                    neighbours: Vec::new(),
                 };
 
                 m.reply(init_msg)?;
@@ -156,6 +159,13 @@ impl<'a> Maelstrom<'a> {
                 } else {
                     Ok(())
                 }
+            }
+            Payload::Topology { topology } => {
+                let mut t = topology.clone();
+                let t = t.get_mut(&self.node_id).expect("missing topology for node");
+                self.neighbours.append(t);
+
+                self.reply(msg)
             }
             _ => self.reply(msg),
         }
