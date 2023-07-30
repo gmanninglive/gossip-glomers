@@ -54,13 +54,13 @@ enum Payload {
         messages: HashSet<usize>,
     },
     Topology {
-        topology: Topology,
+        topology: HashMap<String, Vec<String>>,
     },
     TopologyOk,
 }
 
 impl Message {
-    pub fn response(self, ctx: &Maelstrom) -> Self {
+    pub fn response(self, ctx: &Node) -> Self {
         Self {
             src: self.dest,
             dest: self.src,
@@ -75,7 +75,7 @@ impl Message {
                     Payload::Init { .. } => Payload::InitOk,
                     Payload::Broadcast { .. } => Payload::BroadcastOk,
                     Payload::Read => Payload::ReadOk {
-                        messages: ctx.store.clone(),
+                        messages: ctx.messages.clone(),
                     },
                     Payload::Topology { .. } => Payload::TopologyOk,
                     _ => {
@@ -87,17 +87,16 @@ impl Message {
     }
 }
 
-struct Maelstrom<'a> {
+struct Node<'a> {
     msg_id: usize,
     node_id: String,
     output: JsonLinesWriter<StdoutLock<'a>>,
-    store: HashSet<usize>,
+    messages: HashSet<usize>,
     neighbours: Vec<String>,
 }
 
-type Topology = HashMap<String, Vec<String>>;
-
-impl<'a> Maelstrom<'a> {
+impl<'a> Node<'a> {
+    /// Initialises a Maestrom Node, reading and responding to the init message
     fn init() -> Result<Self, anyhow::Error> {
         let mut input = serde_jsonlines::JsonLinesReader::new(std::io::stdin().lock());
 
@@ -108,26 +107,27 @@ impl<'a> Maelstrom<'a> {
 
         let output = serde_jsonlines::JsonLinesWriter::new(std::io::stdout().lock());
 
-        match init_msg.body.payload.clone() {
+        match &init_msg.body.payload {
             Payload::Init {
                 node_id,
                 node_ids: _,
             } => {
-                let mut m = Self {
+                let mut node = Self {
                     msg_id: 0,
                     node_id: node_id.clone(),
                     output,
-                    store: HashSet::with_capacity(1000),
+                    messages: HashSet::with_capacity(1000),
                     neighbours: Vec::new(),
                 };
 
-                m.reply(init_msg)?;
-                Ok(m)
+                node.reply(init_msg)?;
+                Ok(node)
             }
             _ => Err(Error::msg("did not receive init message")),
         }
     }
 
+    /// Responds to the current message and increments the msg_id
     fn reply(&mut self, msg: Message) -> Result<(), anyhow::Error> {
         self.output.write(&msg.response(self))?;
 
@@ -135,11 +135,12 @@ impl<'a> Maelstrom<'a> {
         Ok(())
     }
 
+    /// Logic for how to handle specific messages
     fn handle_message(&mut self, msg: Message) -> Result<(), anyhow::Error> {
         match &msg.body.payload {
             Payload::Broadcast { message } => {
-                if !self.store.contains(message) {
-                    self.store.insert(*message);
+                if !self.messages.contains(message) {
+                    self.messages.insert(*message);
 
                     for id in self.neighbours.clone().into_iter() {
                         self.output.write(&Message {
@@ -161,9 +162,10 @@ impl<'a> Maelstrom<'a> {
                 }
             }
             Payload::Topology { topology } => {
-                let mut t = topology.clone();
-                let t = t.get_mut(&self.node_id).expect("missing topology for node");
-                self.neighbours.append(t);
+                let t = topology
+                    .get(&self.node_id)
+                    .expect("missing topology for node");
+                self.neighbours.append(&mut t.clone());
 
                 self.reply(msg)
             }
@@ -171,7 +173,7 @@ impl<'a> Maelstrom<'a> {
         }
     }
 
-    fn drain(&mut self) -> Result<(), anyhow::Error> {
+    fn run(&mut self) -> Result<(), anyhow::Error> {
         let input = serde_jsonlines::JsonLinesReader::new(std::io::stdin().lock());
         for msg in input.read_all::<Message>() {
             self.handle_message(msg?)?;
@@ -182,7 +184,5 @@ impl<'a> Maelstrom<'a> {
 }
 
 fn main() -> Result<(), anyhow::Error> {
-    let mut maelstrom = Maelstrom::init()?;
-
-    maelstrom.drain()
+    Node::init()?.run()
 }
