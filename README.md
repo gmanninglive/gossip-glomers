@@ -1,6 +1,6 @@
 # Rust Maelstrom
 
-A solution for (https://fly.io/dist-sys/)[Fly.io Gossip Glomers] challenges
+A solution for [Fly.io Gossip Glomers](https://fly.io/dist-sys/) challenges
 
 ## Setup
 
