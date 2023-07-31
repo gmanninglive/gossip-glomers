@@ -1,6 +1,5 @@
-use std::{collections::HashSet, time::Duration};
-
 use rust_maelstrom::{Body, InnerNode, IntoResponse, Message, Node, Payload};
+use std::{collections::HashSet, time::Duration};
 
 enum Event {
     External(Message),
@@ -71,11 +70,11 @@ impl<'a> BroadcastNode<'a> {
     }
 
     fn run(&mut self) -> anyhow::Result<()> {
-        let (tx, rx) = std::sync::mpsc::channel::<Event>();
+        let (tx, rx) = crossbeam_channel::bounded::<Event>(10);
 
         let stdin_jh = std::thread::spawn({
             let tx = tx.clone();
-            move || loop {
+            move || {
                 let input = serde_jsonlines::JsonLinesReader::new(std::io::stdin().lock());
                 for msg in input.read_all::<Message>() {
                     let _ = tx.send(Event::External(msg.expect("error deserializing message")));
@@ -95,7 +94,7 @@ impl<'a> BroadcastNode<'a> {
             }
         });
 
-        for event in rx {
+        for event in rx.into_iter() {
             match event {
                 Event::Gossip => {
                     for n in self.neighbours.clone() {
@@ -118,7 +117,6 @@ impl<'a> BroadcastNode<'a> {
                 Event::EOF => break,
             }
         }
-
         let _ = stdin_jh.join().expect("stdin thread paniced");
         let _ = gossip_jh.join().expect("gossip thread paniced");
 
