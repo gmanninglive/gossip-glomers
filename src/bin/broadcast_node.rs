@@ -21,6 +21,7 @@ struct BroadcastNode<'a> {
 /// - 3b: Multi-Node Broadcast
 /// - 3c: Fault Tolerant Broadcast
 /// - 3d: Efficient Broadcast, Part I
+/// - 3e: Efficient Broadcast, Part II
 ///
 impl<'a> Node for BroadcastNode<'a> {
     /// Initialises a Maelstrom Node, reading and responding to the init message
@@ -46,7 +47,6 @@ impl<'a> Node for BroadcastNode<'a> {
 }
 
 impl<'a> BroadcastNode<'a> {
-    /// Main control flow
     fn handle_message(&mut self, msg: Message) -> anyhow::Result<()> {
         match &msg.body.payload {
             Payload::Broadcast { message } => {
@@ -66,7 +66,7 @@ impl<'a> BroadcastNode<'a> {
                 self.messages.extend(messages);
                 Ok(())
             }
-            _ => panic!("unexpected message received: {:?}", msg),
+            _ => self.reply(msg),
         }
     }
 
@@ -88,7 +88,8 @@ impl<'a> BroadcastNode<'a> {
         let gossip_jh = std::thread::spawn({
             let tx = tx.clone();
             move || loop {
-                std::thread::sleep(Duration::from_millis(500));
+                // Adjust this duration between challenge 3d and 3e
+                std::thread::sleep(Duration::from_millis(200));
 
                 let _ = tx.send(Event::Gossip);
             }

@@ -31,6 +31,8 @@ A solution for (https://fly.io/dist-sys/)[Fly.io Gossip Glomers] challenges
 
 `./maelstrom/maelstrom test -w broadcast --bin target/debug/broadcast_node --node-count 5 --time-limit 20 --rate 10 --nemesis partition`
 
-### Challenge #3d: Efficient Broadcast, Part I
+### Challenge #3d / e: Efficient Broadcast, Part I / Part II
+
+Adjust sleep duration at `src/bin/broadcast_node.rs:92`
 
 `./maelstrom/maelstrom test -w broadcast --bin target/debug/broadcast_node --node-count 25 --time-limit 20 --rate 100 --latency 100`
