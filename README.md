@@ -19,14 +19,18 @@ A solution for (https://fly.io/dist-sys/)[Fly.io Gossip Glomers] challenges
 
 ## Broadcast
 
-### 5 node
+### Challenge #3a: Single-Node Broadcast
+
+`./maelstrom/maelstrom test -w broadcast --bin target/debug/broadcast_node --node-count 1 --time-limit 20 --rate 10`
+
+### Challenge #3b: Multi-Node Broadcast
 
 `./maelstrom/maelstrom test -w broadcast --bin target/debug/broadcast_node --node-count 5 --time-limit 20 --rate 10`
 
-### Network partitions
+### Challenge #3c: Fault Tolerant Broadcast
 
 `./maelstrom/maelstrom test -w broadcast --bin target/debug/broadcast_node --node-count 5 --time-limit 20 --rate 10 --nemesis partition`
 
-### 25 node 100ms latency
+### Challenge #3d: Efficient Broadcast, Part I
 
 `./maelstrom/maelstrom test -w broadcast --bin target/debug/broadcast_node --node-count 25 --time-limit 20 --rate 100 --latency 100`

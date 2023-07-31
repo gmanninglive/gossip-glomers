@@ -1,6 +1,6 @@
 use std::{collections::HashSet, time::Duration};
 
-use rust_maelstrom::{Body, IntoResponse, Message, Node, Payload};
+use rust_maelstrom::{Body, InnerNode, IntoResponse, Message, Node, Payload};
 
 enum Event {
     External(Message),
@@ -9,7 +9,7 @@ enum Event {
 }
 
 struct BroadcastNode<'a> {
-    inner: Node<'a>,
+    inner: InnerNode<'a>,
     messages: HashSet<usize>,
     neighbours: Vec<String>,
 }
@@ -22,7 +22,7 @@ struct BroadcastNode<'a> {
 /// - 3c: Fault Tolerant Broadcast
 /// - 3d: Efficient Broadcast, Part I
 ///
-impl<'a> BroadcastNode<'a> {
+impl<'a> Node for BroadcastNode<'a> {
     /// Initialises a Maelstrom Node, reading and responding to the init message
     fn new() -> Result<Self, anyhow::Error> {
         Ok(Self {
@@ -32,13 +32,27 @@ impl<'a> BroadcastNode<'a> {
         })
     }
 
+    /// Responds to the current message and increments the msg_id
+    fn reply(&mut self, msg: Message) -> anyhow::Result<()> {
+        self.write(self.response(msg))?;
+
+        self.inner.msg_id += 1;
+        Ok(())
+    }
+
+    fn write(&mut self, msg: Message) -> anyhow::Result<()> {
+        Ok(self.inner.output.write(&msg)?)
+    }
+}
+
+impl<'a> BroadcastNode<'a> {
     /// Main control flow
     fn handle_message(&mut self, msg: Message) -> anyhow::Result<()> {
         match &msg.body.payload {
             Payload::Broadcast { message } => {
                 self.messages.insert(*message);
 
-                self.inner.reply(msg)
+                self.reply(msg)
             }
             Payload::Topology { topology } => {
                 let t = topology
@@ -46,13 +60,13 @@ impl<'a> BroadcastNode<'a> {
                     .expect("missing topology for node");
                 self.neighbours.append(&mut t.clone());
 
-                self.inner.reply(msg)
+                self.reply(msg)
             }
             Payload::Gossip { messages } => {
                 self.messages.extend(messages);
                 Ok(())
             }
-            _ => self.inner.reply(msg),
+            _ => panic!("unexpected message received: {:?}", msg),
         }
     }
 
@@ -84,7 +98,7 @@ impl<'a> BroadcastNode<'a> {
             match event {
                 Event::Gossip => {
                     for n in self.neighbours.clone() {
-                        self.inner.output.write(&Message {
+                        self.write(Message {
                             src: self.inner.node_id.clone(),
                             dest: n,
                             body: Body {
@@ -125,7 +139,6 @@ impl<'a> IntoResponse for BroadcastNode<'a> {
                         messages: self.messages.clone(),
                     },
                     Payload::Topology { .. } => Payload::TopologyOk,
-                    Payload::Init { .. } => Payload::InitOk,
                     unexpected => {
                         panic!("unexpected message received: {:?}", unexpected)
                     }

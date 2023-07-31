@@ -29,17 +29,17 @@ pub struct Body {
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum Payload {
+    Init {
+        node_id: String,
+        node_ids: Vec<String>,
+    },
+    InitOk,
     Echo {
         echo: String,
     },
     EchoOk {
         echo: String,
     },
-    Init {
-        node_id: String,
-        node_ids: Vec<String>,
-    },
-    InitOk,
     Generate,
     GenerateOk {
         id: String,
@@ -65,7 +65,7 @@ pub trait IntoResponse {
     fn response(&self, msg: Message) -> Message;
 }
 
-impl<'a> IntoResponse for Node<'a> {
+impl<'a> IntoResponse for InnerNode<'a> {
     fn response(&self, msg: Message) -> Message {
         Message {
             src: msg.dest,
@@ -74,10 +74,6 @@ impl<'a> IntoResponse for Node<'a> {
                 msg_id: Some(self.msg_id),
                 in_reply_to: msg.body.msg_id,
                 payload: match msg.body.payload {
-                    Payload::Echo { echo } => Payload::EchoOk { echo },
-                    Payload::Generate => Payload::GenerateOk {
-                        id: format!("{}-{}", self.node_id, self.msg_id),
-                    },
                     Payload::Init { .. } => Payload::InitOk,
                     unexpected => {
                         panic!("unexpected message received: {:?}", unexpected)
@@ -88,13 +84,13 @@ impl<'a> IntoResponse for Node<'a> {
     }
 }
 
-pub struct Node<'a> {
+pub struct InnerNode<'a> {
     pub msg_id: usize,
     pub node_id: String,
     pub output: JsonLinesWriter<StdoutLock<'a>>,
 }
 
-impl<'a> Default for Node<'a> {
+impl<'a> Default for InnerNode<'a> {
     fn default() -> Self {
         Self {
             msg_id: 0,
@@ -110,9 +106,19 @@ pub enum Event {
     EOF,
 }
 
-impl<'a> Node<'a> {
-    /// Initialises a Maelstrom Node, reading and responding to the init message
-    pub fn new() -> Result<Self, anyhow::Error> {
+pub trait Node {
+    fn new() -> Result<Self, anyhow::Error>
+    where
+        Self: Sized;
+
+    fn reply(&mut self, msg: Message) -> anyhow::Result<()>;
+
+    fn write(&mut self, msg: Message) -> anyhow::Result<()>;
+}
+
+impl<'a> Node for InnerNode<'a> {
+    /// Initialises a Maelstrom InnerNode, reading and responding to the init message
+    fn new() -> Result<Self, anyhow::Error> {
         let mut input = serde_jsonlines::JsonLinesReader::new(std::io::stdin().lock());
 
         let init_msg = input
@@ -141,10 +147,14 @@ impl<'a> Node<'a> {
     }
 
     /// Responds to the current message and increments the msg_id
-    pub fn reply(&mut self, msg: Message) -> anyhow::Result<()> {
-        self.output.write(&self.response(msg))?;
+    fn reply(&mut self, msg: Message) -> anyhow::Result<()> {
+        self.write(self.response(msg))?;
 
         self.msg_id += 1;
         Ok(())
+    }
+
+    fn write(&mut self, msg: Message) -> anyhow::Result<()> {
+        Ok(self.output.write(&msg)?)
     }
 }
